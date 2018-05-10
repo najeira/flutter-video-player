@@ -231,13 +231,13 @@ public class VideoPlayerPlugin implements MethodCallHandler {
       if (trackGroups != lastSeenTrackGroupArray) {
         MappingTrackSelector.MappedTrackInfo mappedTrackInfo = trackSelector.getCurrentMappedTrackInfo();
         if (mappedTrackInfo != null) {
-          if (mappedTrackInfo.getTrackTypeRendererSupport(C.TRACK_TYPE_VIDEO)
+          if (mappedTrackInfo.getTypeSupport(C.TRACK_TYPE_VIDEO)
                   == MappingTrackSelector.MappedTrackInfo.RENDERER_SUPPORT_UNSUPPORTED_TRACKS) {
             if (eventSink != null) {
               eventSink.error("VideoError", "再生できない形式の映像です", null);
             }
           }
-          if (mappedTrackInfo.getTrackTypeRendererSupport(C.TRACK_TYPE_AUDIO)
+          if (mappedTrackInfo.getTypeSupport(C.TRACK_TYPE_AUDIO)
                   == MappingTrackSelector.MappedTrackInfo.RENDERER_SUPPORT_UNSUPPORTED_TRACKS) {
             if (eventSink != null) {
               eventSink.error("VideoError", "再生できない形式の音声です", null);
