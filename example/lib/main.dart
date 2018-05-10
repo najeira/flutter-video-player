@@ -40,14 +40,26 @@ class _VideoPlayPauseState extends State<VideoPlayPause> {
 
   @override
   void initState() {
+    debugPrint("_VideoPlayPauseState.initState");
     super.initState();
     controller.addListener(listener);
     controller.setVolume(1.0);
     controller.play();
   }
+  
+  @override
+  void didUpdateWidget(VideoPlayPause oldWidget) {
+    debugPrint("_VideoPlayPauseState.didUpdateWidget");
+    super.didUpdateWidget(oldWidget);
+    if (widget.controller != oldWidget.controller) {
+      oldWidget.controller?.removeListener(listener);
+      widget.controller.addListener(listener);
+    }
+  }
 
   @override
   void deactivate() {
+    debugPrint("_VideoPlayPauseState.deactivate");
     controller.setVolume(0.0);
     controller.removeListener(listener);
     super.deactivate();
@@ -55,6 +67,7 @@ class _VideoPlayPauseState extends State<VideoPlayPause> {
 
   @override
   Widget build(BuildContext context) {
+    //debugPrint("_VideoPlayPauseState.build");
     final List<Widget> children = <Widget>[
       new GestureDetector(
         child: new VideoPlayer(controller),
@@ -183,30 +196,44 @@ abstract class _PlayerLifeCycleState extends State<PlayerLifeCycle> {
   VideoPlayerController controller;
 
   @override
-
+  void initState() {
+    debugPrint("_PlayerLifeCycleState.initState");
+    super.initState();
+    initVideoPlayerController();
+  }
+  
   /// Subclasses should implement [createVideoPlayerController], which is used
   /// by this method.
-  void initState() {
-    super.initState();
+  void initVideoPlayerController() {
+    controller?.dispose();
     controller = createVideoPlayerController();
     controller.addListener(() {
-      if (controller.value.hasError) {
-        print(controller.value.errorDescription);
-      }
+      debugPrint("initialized=${controller.value.initialized}, "
+        "size=${controller.value.size}, "
+        "duration=${controller.value.duration}, "
+        "position=${controller.value.position}, "
+        "error=${controller.value.errorDescription}");
     });
-    controller.initialize();
     controller.setLooping(true);
     controller.play();
+    controller.initialize().then((_) {
+      setState(() {});
+    });
   }
-
+  
   @override
-  void deactivate() {
-    super.deactivate();
+  void didUpdateWidget(PlayerLifeCycle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.dataSource != oldWidget.dataSource) {
+      debugPrint("_PlayerLifeCycleState.didUpdateWidget");
+      initVideoPlayerController();
+    }
   }
 
   @override
   void dispose() {
-    controller.dispose();
+    debugPrint("_PlayerLifeCycleState.dispose");
+    controller?.dispose();
     super.dispose();
   }
 
@@ -232,79 +259,6 @@ class _AssetPlayerLifeCycleState extends _PlayerLifeCycleState {
   }
 }
 
-/// A filler card to show the video in a list of scrolling contents.
-Widget buildCard(String title) {
-  return new Card(
-    child: new Column(
-      mainAxisSize: MainAxisSize.min,
-      children: <Widget>[
-        new ListTile(
-          leading: const Icon(Icons.airline_seat_flat_angled),
-          title: new Text(title),
-        ),
-        new ButtonTheme.bar(
-          child: new ButtonBar(
-            children: <Widget>[
-              new FlatButton(
-                child: const Text('BUY TICKETS'),
-                onPressed: () {/* ... */},
-              ),
-              new FlatButton(
-                child: const Text('SELL TICKETS'),
-                onPressed: () {/* ... */},
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
-class VideoInListOfCards extends StatelessWidget {
-  final VideoPlayerController controller;
-
-  VideoInListOfCards(this.controller);
-
-  @override
-  Widget build(BuildContext context) {
-    return new ListView(
-      children: <Widget>[
-        buildCard("Item a"),
-        buildCard("Item b"),
-        buildCard("Item c"),
-        buildCard("Item d"),
-        buildCard("Item e"),
-        buildCard("Item f"),
-        buildCard("Item g"),
-        new Card(
-            child: new Column(children: <Widget>[
-          new Column(
-            children: <Widget>[
-              const ListTile(
-                leading: const Icon(Icons.cake),
-                title: const Text("Video video"),
-              ),
-              new Stack(
-                  alignment: FractionalOffset.bottomRight +
-                      const FractionalOffset(-0.1, -0.1),
-                  children: <Widget>[
-                    new AspectRatioVideo(controller),
-                    new Image.asset('assets/flutter-mark-square-64.png'),
-                  ]),
-            ],
-          ),
-        ])),
-        buildCard("Item h"),
-        buildCard("Item i"),
-        buildCard("Item j"),
-        buildCard("Item k"),
-        buildCard("Item l"),
-      ],
-    );
-  }
-}
-
 class AspectRatioVideo extends StatefulWidget {
   final VideoPlayerController controller;
 
@@ -316,27 +270,52 @@ class AspectRatioVideo extends StatefulWidget {
 
 class AspectRatioVideoState extends State<AspectRatioVideo> {
   VideoPlayerController get controller => widget.controller;
+  
   bool initialized = false;
-
-  VoidCallback listener;
 
   @override
   void initState() {
+    debugPrint("AspectRatioVideoState.initState");
     super.initState();
-    listener = () {
-      if (!mounted) {
-        return;
-      }
-      if (initialized != controller.value.initialized) {
+    initialized = controller.value.initialized;
+    controller.addListener(_controllerChanged);
+  }
+
+  @override
+  void deactivate() {
+    debugPrint("AspectRatioVideoState.deactivate");
+    controller.removeListener(_controllerChanged);
+    super.deactivate();
+  }
+  
+  void _controllerChanged() {
+    if (!mounted) {
+      return;
+    }
+    if (initialized != controller.value.initialized) {
+      debugPrint("AspectRatioVideoState._controllerChanged ${initialized} ${controller.value.initialized}");
+      setState(() {
         initialized = controller.value.initialized;
-        setState(() {});
-      }
-    };
-    controller.addListener(listener);
+      });
+    }
+  }
+  
+  @override
+  void didUpdateWidget(AspectRatioVideo oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.controller != oldWidget.controller) {
+      debugPrint("AspectRatioVideoState.didUpdateWidget");
+      oldWidget.controller?.removeListener(_controllerChanged);
+      widget.controller.addListener(_controllerChanged);
+      setState(() {
+        initialized = widget.controller.value.initialized;
+      });
+    }
   }
 
   @override
   Widget build(BuildContext context) {
+    debugPrint("AspectRatioVideoState.build");
     if (initialized) {
       final Size size = controller.value.size;
       return new Center(
@@ -346,42 +325,86 @@ class AspectRatioVideoState extends State<AspectRatioVideo> {
         ),
       );
     } else {
-      return new Container();
+      return new Container(color: Colors.black);
     }
   }
 }
 
-void main() {
-  runApp(
-    new MaterialApp(
-      home: new DefaultTabController(
-        length: 2,
-        child: new Scaffold(
-          appBar: new AppBar(
-            title: const Text('Video player example'),
-            bottom: const TabBar(
-              isScrollable: true,
-              tabs: const <Widget>[
-                const Tab(icon: const Icon(Icons.fullscreen)),
-                const Tab(icon: const Icon(Icons.list)),
-              ],
-            ),
+class VideoPlayerApp extends StatefulWidget {
+  @override
+  State<StatefulWidget> createState() {
+    return new VideoPlayerAppState();
+  }
+}
+
+class VideoPlayerAppState extends State<VideoPlayerApp> {
+  int selected = 0;
+  String get title => videos[selected][0];
+  String get dataSource => videos[selected][1];
+  
+  static List<List<String>> videos = <List<String>>[
+    <String>[
+      'Big Buck Bunny - adaptive qualities',
+      'https://video-dev.github.io/streams/x36xhzz/x36xhzz.m3u8',
+    ],
+    <String>[
+      'Big Buck Bunny - 480p only',
+      'https://video-dev.github.io/streams/x36xhzz/url_6/193039199_mp4_h264_aac_hq_7.m3u8',
+    ],
+    <String>[
+      'HLS fMP4 by Bitmovin',
+      'https://bitdash-a.akamaihd.net/content/MI201109210084_1/m3u8s-fmp4/f08e80da-bf1d-4e3d-8899-f0f6155f6efa.m3u8',
+    ],
+    <String>[
+      'DK Turntable, PTS shifted by 2.3s',
+      'https://video-dev.github.io/streams/pts_shift/master.m3u8',
+    ],
+  ];
+  
+  void setVideo(int index) {
+    setState(() {
+      selected = index;
+    });
+  }
+  
+  @override
+  Widget build(BuildContext context) {
+    debugPrint("VideoPlayerAppState.build ${title} ${dataSource}");
+    return new Scaffold(
+      appBar: new AppBar(
+        title: new Text(title),
+        actions: <Widget>[
+          new PopupMenuButton<int>(
+            onSelected: (int value) {
+              setVideo(value);
+            },
+            itemBuilder: (BuildContext context) {
+              int index = 0;
+              return videos.map<PopupMenuEntry<int>>((video) {
+                index += 1;
+                return new PopupMenuItem<int>(
+                  value: index - 1,
+                  child: new Text(video[0]),
+                );
+              }).toList();
+            },
           ),
-          body: new TabBarView(
-            children: <Widget>[
-              new NetworkPlayerLifeCycle(
-                'http://www.sample-videos.com/video/mp4/720/big_buck_bunny_720p_20mb.mp4',
-                (BuildContext context, VideoPlayerController controller) =>
-                    new AspectRatioVideo(controller),
-              ),
-              new AssetPlayerLifeCycle(
-                  'assets/Butterfly-209.mp4',
-                  (BuildContext context, VideoPlayerController controller) =>
-                      new VideoInListOfCards(controller)),
-            ],
-          ),
+        ],
+      ),
+      body: new Center(
+        child: new NetworkPlayerLifeCycle(
+          dataSource,
+          (BuildContext context, VideoPlayerController controller) =>
+              new AspectRatioVideo(controller),
         ),
       ),
-    ),
-  );
+    );
+  }
+}
+
+void main() {
+  runApp(new MaterialApp(
+    home: new VideoPlayerApp(),
+    debugShowCheckedModeBanner: false,
+  ));
 }
