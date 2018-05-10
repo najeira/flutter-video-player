@@ -64,7 +64,6 @@ public class VideoPlayerPlugin implements MethodCallHandler {
     }
 
     private final TextureRegistry.SurfaceTextureEntry textureEntry;
-    //private final MediaPlayer mediaPlayer;
     private EventChannel.EventSink eventSink;
     private final EventChannel eventChannel;
     private final Activity activity;
@@ -78,11 +77,8 @@ public class VideoPlayerPlugin implements MethodCallHandler {
     private int width;
     private int height;
     private TrackGroupArray lastSeenTrackGroupArray;
-    private boolean shouldAutoPlay;
-    private int resumeWindow;
-    private long resumePosition;
 
-    VideoPlayer(
+    /*VideoPlayer(
         Activity activity,
         EventChannel eventChannel,
         TextureRegistry.SurfaceTextureEntry textureEntry,
@@ -92,7 +88,7 @@ public class VideoPlayerPlugin implements MethodCallHandler {
       this.eventChannel = eventChannel;
       //this.mediaPlayer = new MediaPlayer();
       this.textureEntry = textureEntry;
-    }
+    }*/
 
     VideoPlayer(
         Activity activity,
@@ -105,19 +101,29 @@ public class VideoPlayerPlugin implements MethodCallHandler {
       //this.mediaPlayer = new MediaPlayer();
       this.textureEntry = textureEntry;
       this.dataSource = Uri.parse(dataSource);
-      setupVideoPlayer(eventChannel, textureEntry, result);
+      setupVideoPlayer(textureEntry, result);
     }
 
-    private void setupVideoPlayer(
-        EventChannel eventChannel,
-        TextureRegistry.SurfaceTextureEntry textureEntry,
-        Result result) {
+    private void setupVideoPlayer(TextureRegistry.SurfaceTextureEntry textureEntry, Result result) {
+      eventChannel.setStreamHandler(
+              new EventChannel.StreamHandler() {
+                @Override
+                public void onListen(Object o, EventChannel.EventSink sink) {
+                  eventSink = sink;
+                  sendInitialized();
+                }
+
+                @Override
+                public void onCancel(Object o) {
+                  eventSink = null;
+                }
+              });
+
+      initializePlayer();
 
       Map<String, Object> reply = new HashMap<>();
       reply.put("textureId", textureEntry.id());
       result.success(reply);
-
-      initializePlayer();
     }
 
     private void initializePlayer() {
@@ -137,30 +143,12 @@ public class VideoPlayerPlugin implements MethodCallHandler {
         player = ExoPlayerFactory.newSimpleInstance(this.activity, trackSelector);
         player.addListener(this);
         player.addVideoListener(this);
-        player.setPlayWhenReady(shouldAutoPlay);
+        //player.setPlayWhenReady(shouldAutoPlay);
         player.setRepeatMode(Player.REPEAT_MODE_ALL);
       }
 
       MediaSource mediaSource = buildMediaSource(dataSource, null);
-      boolean haveResumePosition = resumeWindow != C.INDEX_UNSET;
-      if (haveResumePosition) {
-        player.seekTo(resumeWindow, resumePosition);
-      }
-      player.prepare(mediaSource, !haveResumePosition, false);
-
-      eventChannel.setStreamHandler(
-              new EventChannel.StreamHandler() {
-                @Override
-                public void onListen(Object o, EventChannel.EventSink sink) {
-                  eventSink = sink;
-                  sendInitialized();
-                }
-
-                @Override
-                public void onCancel(Object o) {
-                  eventSink = null;
-                }
-              });
+      player.prepare(mediaSource, false, false);
 
       player.setVideoSurface(new Surface(textureEntry.surfaceTexture()));
     }
@@ -214,25 +202,12 @@ public class VideoPlayerPlugin implements MethodCallHandler {
 
     void dispose() {
       if (player != null) {
-        updateResumePosition();
         player.release();
         player = null;
         trackSelector = null;
       }
       textureEntry.release();
       eventChannel.setStreamHandler(null);
-    }
-
-    private void updateResumePosition() {
-      shouldAutoPlay = player.getPlayWhenReady();
-      resumeWindow = player.getCurrentWindowIndex();
-      resumePosition = Math.max(0, player.getContentPosition());
-    }
-
-    private void clearResumePosition() {
-      shouldAutoPlay = true;
-      resumeWindow = C.INDEX_UNSET;
-      resumePosition = C.TIME_UNSET;
     }
 
     private void bufferingUpdate() {
@@ -284,6 +259,8 @@ public class VideoPlayerPlugin implements MethodCallHandler {
         if (!isInitialized) {
           isInitialized = true;
           sendInitialized();
+        } else {
+          bufferingUpdate();
         }
       } else if (playbackState == Player.STATE_ENDED) {
         Map<String, Object> event = new HashMap<>();
@@ -328,10 +305,7 @@ public class VideoPlayerPlugin implements MethodCallHandler {
       }
 
       if (isBehindLiveWindow(error)) {
-        clearResumePosition();
         initializePlayer();
-      } else {
-        updateResumePosition();
       }
 
       if (eventSink != null) {
@@ -341,11 +315,7 @@ public class VideoPlayerPlugin implements MethodCallHandler {
 
     @Override
     public void onPositionDiscontinuity(int reason) {
-      if (player.getPlaybackError() != null) {
-        // The user has performed a seek whilst in the error state. Update the resume position so
-        // that if the user then retries, playback resumes from the position to which they seeked.
-        updateResumePosition();
-      }
+
     }
 
     @Override
