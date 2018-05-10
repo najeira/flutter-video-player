@@ -59,21 +59,6 @@ static void* playbackLikelyToKeepUpContext = &playbackLikelyToKeepUpContext;
   _isInitialized = false;
   _isPlaying = false;
   _disposed = false;
-  _player = [[AVPlayer alloc] init];
-  _player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
-  [[NSNotificationCenter defaultCenter] addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
-                                                    object:[_player currentItem]
-                                                     queue:[NSOperationQueue mainQueue]
-                                                usingBlock:^(NSNotification* note) {
-                                                  if (_isLooping) {
-                                                    AVPlayerItem* p = [note object];
-                                                    [p seekToTime:kCMTimeZero];
-                                                  } else {
-                                                    if (_eventSink) {
-                                                      _eventSink(@{@"event" : @"completed"});
-                                                    }
-                                                  }
-                                                }];
   NSDictionary* pixBuffAttributes = @{
     (id)kCVPixelBufferPixelFormatTypeKey : @(kCVPixelFormatType_32BGRA),
     (id)kCVPixelBufferIOSurfacePropertiesKey : @{}
@@ -94,6 +79,22 @@ static void* playbackLikelyToKeepUpContext = &playbackLikelyToKeepUpContext;
             options:NSKeyValueObservingOptionInitial | NSKeyValueObservingOptionNew
             context:playbackLikelyToKeepUpContext];
 
+  _player = [AVPlayer playerWithPlayerItem:item];
+  _player.actionAtItemEnd = AVPlayerActionAtItemEndNone;
+  [[NSNotificationCenter defaultCenter] addObserverForName:AVPlayerItemDidPlayToEndTimeNotification
+                                                    object:[_player currentItem]
+                                                     queue:[NSOperationQueue mainQueue]
+                                                usingBlock:^(NSNotification* note) {
+                                                  if (_isLooping) {
+                                                    AVPlayerItem* p = [note object];
+                                                    [p seekToTime:kCMTimeZero];
+                                                  } else {
+                                                    if (_eventSink) {
+                                                      _eventSink(@{@"event" : @"completed"});
+                                                    }
+                                                  }
+                                                }];
+/*
   AVAsset* asset = [item asset];
   void (^assetCompletionHandler)(void) = ^{
     if ([asset statusOfValueForKey:@"tracks" error:nil] == AVKeyValueStatusLoaded) {
@@ -115,6 +116,7 @@ static void* playbackLikelyToKeepUpContext = &playbackLikelyToKeepUpContext;
     }
   };
   [asset loadValuesAsynchronouslyForKeys:@[ @"tracks" ] completionHandler:assetCompletionHandler];
+*/
   _displayLink =
       [CADisplayLink displayLinkWithTarget:frameUpdater selector:@selector(onDisplayLink:)];
   [_displayLink addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSRunLoopCommonModes];
