@@ -94,7 +94,7 @@ static void* playbackLikelyToKeepUpContext = &playbackLikelyToKeepUpContext;
                                                     }
                                                   }
                                                 }];
-/*
+
   AVAsset* asset = [item asset];
   void (^assetCompletionHandler)(void) = ^{
     if ([asset statusOfValueForKey:@"tracks" error:nil] == AVKeyValueStatusLoaded) {
@@ -116,9 +116,8 @@ static void* playbackLikelyToKeepUpContext = &playbackLikelyToKeepUpContext;
     }
   };
   [asset loadValuesAsynchronouslyForKeys:@[ @"tracks" ] completionHandler:assetCompletionHandler];
-*/
-  _displayLink =
-      [CADisplayLink displayLinkWithTarget:frameUpdater selector:@selector(onDisplayLink:)];
+
+  _displayLink = [CADisplayLink displayLinkWithTarget:frameUpdater selector:@selector(onDisplayLink:)];
   [_displayLink addToRunLoop:[NSRunLoop currentRunLoop] forMode:NSRunLoopCommonModes];
   _displayLink.paused = YES;
   return self;
