@@ -4,12 +4,39 @@
 
 package io.flutter.plugins.videoplayer;
 
+import android.app.Activity;
 import android.content.res.AssetFileDescriptor;
-import android.media.AudioAttributes;
-import android.media.AudioManager;
-import android.media.MediaPlayer;
-import android.os.Build;
+import android.net.Uri;
+import android.text.TextUtils;
+import android.util.LongSparseArray;
 import android.view.Surface;
+
+import com.google.android.exoplayer2.C;
+import com.google.android.exoplayer2.ExoPlaybackException;
+import com.google.android.exoplayer2.ExoPlayerFactory;
+import com.google.android.exoplayer2.PlaybackParameters;
+import com.google.android.exoplayer2.Player;
+import com.google.android.exoplayer2.SimpleExoPlayer;
+import com.google.android.exoplayer2.Timeline;
+import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
+import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
+import com.google.android.exoplayer2.source.BehindLiveWindowException;
+import com.google.android.exoplayer2.source.ExtractorMediaSource;
+import com.google.android.exoplayer2.source.MediaSource;
+import com.google.android.exoplayer2.source.TrackGroupArray;
+import com.google.android.exoplayer2.source.hls.HlsMediaSource;
+import com.google.android.exoplayer2.trackselection.AdaptiveTrackSelection;
+import com.google.android.exoplayer2.trackselection.DefaultTrackSelector;
+import com.google.android.exoplayer2.trackselection.MappingTrackSelector;
+import com.google.android.exoplayer2.trackselection.TrackSelection;
+import com.google.android.exoplayer2.trackselection.TrackSelectionArray;
+import com.google.android.exoplayer2.upstream.DataSource;
+import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
+import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
+import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
+import com.google.android.exoplayer2.util.Util;
+import com.google.android.exoplayer2.video.VideoListener;
+
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
@@ -17,7 +44,9 @@ import io.flutter.plugin.common.MethodChannel.MethodCallHandler;
 import io.flutter.plugin.common.MethodChannel.Result;
 import io.flutter.plugin.common.PluginRegistry.Registrar;
 import io.flutter.view.TextureRegistry;
-import java.io.IOException;
+import java.net.CookieHandler;
+import java.net.CookieManager;
+import java.net.CookiePolicy;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
@@ -25,178 +54,334 @@ import java.util.List;
 import java.util.Map;
 
 public class VideoPlayerPlugin implements MethodCallHandler {
-  private static class VideoPlayer {
+  private static class VideoPlayer implements Player.EventListener, VideoListener {
+    private static final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter();
+    private static final CookieManager DEFAULT_COOKIE_MANAGER;
+
+    static {
+      DEFAULT_COOKIE_MANAGER = new CookieManager();
+      DEFAULT_COOKIE_MANAGER.setCookiePolicy(CookiePolicy.ACCEPT_ORIGINAL_SERVER);
+    }
+
     private final TextureRegistry.SurfaceTextureEntry textureEntry;
-    private final MediaPlayer mediaPlayer;
+    //private final MediaPlayer mediaPlayer;
     private EventChannel.EventSink eventSink;
     private final EventChannel eventChannel;
+    private final Activity activity;
     private boolean isInitialized = false;
 
+    private Uri dataSource;
+    private DataSource.Factory mediaDataSourceFactory;
+    private SimpleExoPlayer player;
+    private DefaultTrackSelector trackSelector;
+
+    private int width;
+    private int height;
+    private TrackGroupArray lastSeenTrackGroupArray;
+    private boolean shouldAutoPlay;
+    private int resumeWindow;
+    private long resumePosition;
+
     VideoPlayer(
+        Activity activity,
         EventChannel eventChannel,
         TextureRegistry.SurfaceTextureEntry textureEntry,
         AssetFileDescriptor afd,
         final Result result) {
+      this.activity = activity;
       this.eventChannel = eventChannel;
-      this.mediaPlayer = new MediaPlayer();
+      //this.mediaPlayer = new MediaPlayer();
       this.textureEntry = textureEntry;
-      try {
-        mediaPlayer.setDataSource(afd.getFileDescriptor(), afd.getStartOffset(), afd.getLength());
-        setupVideoPlayer(eventChannel, textureEntry, mediaPlayer, result);
-      } catch (IOException e) {
-        result.error("VideoError", "IOError when initializing video player " + e.toString(), null);
-      }
     }
 
     VideoPlayer(
+        Activity activity,
         EventChannel eventChannel,
         TextureRegistry.SurfaceTextureEntry textureEntry,
         String dataSource,
         Result result) {
+      this.activity = activity;
       this.eventChannel = eventChannel;
-      this.mediaPlayer = new MediaPlayer();
+      //this.mediaPlayer = new MediaPlayer();
       this.textureEntry = textureEntry;
-      try {
-        mediaPlayer.setDataSource(dataSource);
-        setupVideoPlayer(eventChannel, textureEntry, mediaPlayer, result);
-      } catch (IOException e) {
-        result.error("VideoError", "IOError when initializing video player " + e.toString(), null);
-      }
+      this.dataSource = Uri.parse(dataSource);
+      setupVideoPlayer(eventChannel, textureEntry, result);
     }
 
     private void setupVideoPlayer(
         EventChannel eventChannel,
         TextureRegistry.SurfaceTextureEntry textureEntry,
-        final MediaPlayer mediaPlayer,
         Result result) {
-
-      eventChannel.setStreamHandler(
-          new EventChannel.StreamHandler() {
-            @Override
-            public void onListen(Object o, EventChannel.EventSink sink) {
-              eventSink = sink;
-              sendInitialized();
-            }
-
-            @Override
-            public void onCancel(Object o) {
-              eventSink = null;
-            }
-          });
-
-      mediaPlayer.setSurface(new Surface(textureEntry.surfaceTexture()));
-      setAudioAttributes(mediaPlayer);
-      mediaPlayer.setOnPreparedListener(
-          new MediaPlayer.OnPreparedListener() {
-            @Override
-            public void onPrepared(MediaPlayer mp) {
-              mediaPlayer.setOnBufferingUpdateListener(
-                  new MediaPlayer.OnBufferingUpdateListener() {
-                    @Override
-                    public void onBufferingUpdate(MediaPlayer mediaPlayer, int percent) {
-                      if (eventSink != null) {
-                        Map<String, Object> event = new HashMap<>();
-                        event.put("event", "bufferingUpdate");
-                        List<Integer> range =
-                            Arrays.asList(0, percent * mediaPlayer.getDuration() / 100);
-                        // iOS supports a list of buffered ranges, so here is a list with a single range.
-                        event.put("values", Collections.singletonList(range));
-                        eventSink.success(event);
-                      }
-                    }
-                  });
-              isInitialized = true;
-              sendInitialized();
-            }
-          });
-
-      mediaPlayer.setOnErrorListener(
-          new MediaPlayer.OnErrorListener() {
-            @Override
-            public boolean onError(MediaPlayer mp, int what, int extra) {
-              eventSink.error(
-                  "VideoError", "Video player had error " + what + " extra " + extra, null);
-              return true;
-            }
-          });
-
-      mediaPlayer.setOnCompletionListener(
-          new MediaPlayer.OnCompletionListener() {
-            @Override
-            public void onCompletion(MediaPlayer mediaPlayer) {
-              Map<String, Object> event = new HashMap<>();
-              event.put("event", "completed");
-              eventSink.success(event);
-            }
-          });
-
-      mediaPlayer.prepareAsync();
 
       Map<String, Object> reply = new HashMap<>();
       reply.put("textureId", textureEntry.id());
       result.success(reply);
+
+      initializePlayer();
     }
 
-    @SuppressWarnings("deprecation")
-    private static void setAudioAttributes(MediaPlayer mediaPlayer) {
-      if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-        mediaPlayer.setAudioAttributes(
-            new AudioAttributes.Builder()
-                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                .build());
-      } else {
-        mediaPlayer.setAudioStreamType(AudioManager.STREAM_MUSIC);
+    private void initializePlayer() {
+      if (player == null) {
+        String userAgent = Util.getUserAgent(this.activity, "Flutter");
+        DataSource.Factory baseDataSourceFactory = new DefaultHttpDataSourceFactory(userAgent, BANDWIDTH_METER);
+        mediaDataSourceFactory = new DefaultDataSourceFactory(this.activity, BANDWIDTH_METER, baseDataSourceFactory);
+
+        if (CookieHandler.getDefault() != DEFAULT_COOKIE_MANAGER) {
+          CookieHandler.setDefault(DEFAULT_COOKIE_MANAGER);
+        }
+
+        TrackSelection.Factory adaptiveTrackSelectionFactory = new AdaptiveTrackSelection.Factory(BANDWIDTH_METER);
+        trackSelector = new DefaultTrackSelector(adaptiveTrackSelectionFactory);
+        lastSeenTrackGroupArray = null;
+
+        player = ExoPlayerFactory.newSimpleInstance(this.activity, trackSelector);
+        player.addListener(this);
+        player.addVideoListener(this);
+        player.setPlayWhenReady(shouldAutoPlay);
+        player.setRepeatMode(Player.REPEAT_MODE_ALL);
       }
+
+      MediaSource mediaSource = buildMediaSource(dataSource, null);
+      boolean haveResumePosition = resumeWindow != C.INDEX_UNSET;
+      if (haveResumePosition) {
+        player.seekTo(resumeWindow, resumePosition);
+      }
+      player.prepare(mediaSource, !haveResumePosition, false);
+
+      eventChannel.setStreamHandler(
+              new EventChannel.StreamHandler() {
+                @Override
+                public void onListen(Object o, EventChannel.EventSink sink) {
+                  eventSink = sink;
+                  sendInitialized();
+                }
+
+                @Override
+                public void onCancel(Object o) {
+                  eventSink = null;
+                }
+              });
+
+      player.setVideoSurface(new Surface(textureEntry.surfaceTexture()));
+    }
+
+    private MediaSource buildMediaSource(Uri uri, String overrideExtension) {
+      int type = TextUtils.isEmpty(overrideExtension) ? Util.inferContentType(uri)
+              : Util.inferContentType("." + overrideExtension);
+      if (type == C.TYPE_HLS) {
+        return new HlsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
+      } else if (type == C.TYPE_OTHER) {
+        return new ExtractorMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
+      }
+      throw new IllegalStateException("Unsupported type: " + type);
     }
 
     void play() {
-      if (!mediaPlayer.isPlaying()) {
-        mediaPlayer.start();
-      }
+      player.setPlayWhenReady(true);
     }
 
     void pause() {
-      if (mediaPlayer.isPlaying()) {
-        mediaPlayer.pause();
-      }
+      player.setPlayWhenReady(false);
     }
 
     void setLooping(boolean value) {
-      mediaPlayer.setLooping(value);
+      player.setRepeatMode(value ? Player.REPEAT_MODE_ALL : Player.REPEAT_MODE_OFF);
     }
 
     void setVolume(double value) {
       float bracketedValue = (float) Math.max(0.0, Math.min(1.0, value));
-      mediaPlayer.setVolume(bracketedValue, bracketedValue);
+      player.setVolume(bracketedValue);
     }
 
-    void seekTo(int location) {
-      mediaPlayer.seekTo(location);
+    void seekTo(long location) {
+      player.seekTo(location);
     }
 
-    int getPosition() {
-      return mediaPlayer.getCurrentPosition();
+    long getPosition() {
+      return player.getCurrentPosition();
     }
 
     private void sendInitialized() {
       if (isInitialized && eventSink != null) {
         Map<String, Object> event = new HashMap<>();
         event.put("event", "initialized");
-        event.put("duration", mediaPlayer.getDuration());
-        event.put("width", mediaPlayer.getVideoWidth());
-        event.put("height", mediaPlayer.getVideoHeight());
+        event.put("duration", player.getDuration());
+        event.put("width", width);
+        event.put("height", height);
         eventSink.success(event);
       }
     }
 
     void dispose() {
-      if (isInitialized && mediaPlayer.isPlaying()) {
-        mediaPlayer.stop();
+      if (player != null) {
+        updateResumePosition();
+        player.release();
+        player = null;
+        trackSelector = null;
       }
-      mediaPlayer.reset();
-      mediaPlayer.release();
       textureEntry.release();
       eventChannel.setStreamHandler(null);
+    }
+
+    private void updateResumePosition() {
+      shouldAutoPlay = player.getPlayWhenReady();
+      resumeWindow = player.getCurrentWindowIndex();
+      resumePosition = Math.max(0, player.getContentPosition());
+    }
+
+    private void clearResumePosition() {
+      shouldAutoPlay = true;
+      resumeWindow = C.INDEX_UNSET;
+      resumePosition = C.TIME_UNSET;
+    }
+
+    private void bufferingUpdate() {
+      if (eventSink != null) {
+        Map<String, Object> event = new HashMap<>();
+        event.put("event", "bufferingUpdate");
+        List<Integer> range = Arrays.asList(0, (int) player.getBufferedPosition());
+        // iOS supports a list of buffered ranges, so here is a list with a single range.
+        event.put("values", Collections.singletonList(range));
+        eventSink.success(event);
+      }
+    }
+
+    @Override
+    public void onTimelineChanged(Timeline timeline, Object manifest, int reason) {
+
+    }
+
+    @Override
+    public void onTracksChanged(TrackGroupArray trackGroups, TrackSelectionArray trackSelections) {
+      if (trackGroups != lastSeenTrackGroupArray) {
+        MappingTrackSelector.MappedTrackInfo mappedTrackInfo = trackSelector.getCurrentMappedTrackInfo();
+        if (mappedTrackInfo != null) {
+          if (mappedTrackInfo.getTrackTypeRendererSupport(C.TRACK_TYPE_VIDEO)
+                  == MappingTrackSelector.MappedTrackInfo.RENDERER_SUPPORT_UNSUPPORTED_TRACKS) {
+            if (eventSink != null) {
+              eventSink.error("VideoError", "再生できない形式の映像です", null);
+            }
+          }
+          if (mappedTrackInfo.getTrackTypeRendererSupport(C.TRACK_TYPE_AUDIO)
+                  == MappingTrackSelector.MappedTrackInfo.RENDERER_SUPPORT_UNSUPPORTED_TRACKS) {
+            if (eventSink != null) {
+              eventSink.error("VideoError", "再生できない形式の音声です", null);
+            }
+          }
+        }
+        lastSeenTrackGroupArray = trackGroups;
+      }
+    }
+
+    @Override
+    public void onLoadingChanged(boolean isLoading) {
+      bufferingUpdate();
+    }
+
+    @Override
+    public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
+      if (playbackState == Player.STATE_READY) {
+        if (!isInitialized) {
+          isInitialized = true;
+          sendInitialized();
+        }
+      } else if (playbackState == Player.STATE_ENDED) {
+        Map<String, Object> event = new HashMap<>();
+        event.put("event", "completed");
+        eventSink.success(event);
+      } else if (playbackState == Player.STATE_BUFFERING) {
+        bufferingUpdate();
+      }
+    }
+
+    @Override
+    public void onRepeatModeChanged(int repeatMode) {
+
+    }
+
+    @Override
+    public void onShuffleModeEnabledChanged(boolean shuffleModeEnabled) {
+
+    }
+
+    @Override
+    public void onPlayerError(ExoPlaybackException error) {
+      String errorString = null;
+      if (error.type == ExoPlaybackException.TYPE_RENDERER) {
+        Exception cause = error.getRendererException();
+        if (cause instanceof MediaCodecRenderer.DecoderInitializationException) {
+          // Special case for decoder initialization failures.
+          MediaCodecRenderer.DecoderInitializationException decoderInitializationException =
+                  (MediaCodecRenderer.DecoderInitializationException) cause;
+          if (decoderInitializationException.decoderName == null) {
+            if (decoderInitializationException.getCause() instanceof MediaCodecUtil.DecoderQueryException) {
+              errorString = String.format("再生できません");
+            } else if (decoderInitializationException.secureDecoderRequired) {
+              errorString = String.format("再生できない形式(%s)です", decoderInitializationException.mimeType);
+            } else {
+              errorString = String.format("再生できない形式(%s)です", decoderInitializationException.mimeType);
+            }
+          } else {
+            errorString = String.format("再生できない形式(%s)です", decoderInitializationException.decoderName);
+          }
+        }
+      }
+
+      if (isBehindLiveWindow(error)) {
+        clearResumePosition();
+        initializePlayer();
+      } else {
+        updateResumePosition();
+      }
+
+      if (eventSink != null) {
+        eventSink.error("VideoError", errorString, null);
+      }
+    }
+
+    @Override
+    public void onPositionDiscontinuity(int reason) {
+      if (player.getPlaybackError() != null) {
+        // The user has performed a seek whilst in the error state. Update the resume position so
+        // that if the user then retries, playback resumes from the position to which they seeked.
+        updateResumePosition();
+      }
+    }
+
+    @Override
+    public void onPlaybackParametersChanged(PlaybackParameters playbackParameters) {
+
+    }
+
+    @Override
+    public void onSeekProcessed() {
+
+    }
+
+    private static boolean isBehindLiveWindow(ExoPlaybackException e) {
+      if (e.type != ExoPlaybackException.TYPE_SOURCE) {
+        return false;
+      }
+      Throwable cause = e.getSourceException();
+      while (cause != null) {
+        if (cause instanceof BehindLiveWindowException) {
+          return true;
+        }
+        cause = cause.getCause();
+      }
+      return false;
+    }
+
+    @Override
+    public void onVideoSizeChanged(int width, int height, int unappliedRotationDegrees, float pixelWidthHeightRatio) {
+      this.width = width;
+      this.height = height;
+      sendInitialized();
+    }
+
+    @Override
+    public void onRenderedFirstFrame() {
+
     }
   }
 
@@ -208,10 +393,10 @@ public class VideoPlayerPlugin implements MethodCallHandler {
 
   private VideoPlayerPlugin(Registrar registrar) {
     this.registrar = registrar;
-    this.videoPlayers = new HashMap<>();
+    this.videoPlayers = new LongSparseArray<>();
   }
 
-  private final Map<Long, VideoPlayer> videoPlayers;
+  private final LongSparseArray<VideoPlayer> videoPlayers;
   private final Registrar registrar;
 
   @Override
@@ -223,7 +408,9 @@ public class VideoPlayerPlugin implements MethodCallHandler {
     }
     switch (call.method) {
       case "init":
-        for (VideoPlayer player : videoPlayers.values()) {
+        int size = videoPlayers.size();
+        for (int i = 0; i < size; i++) {
+          VideoPlayer player = videoPlayers.valueAt(i);
           player.dispose();
         }
         videoPlayers.clear();
@@ -237,29 +424,14 @@ public class VideoPlayerPlugin implements MethodCallHandler {
 
           VideoPlayer player;
           if (call.argument("asset") != null) {
-            try {
-              String assetLookupKey;
-              if (call.argument("package") != null) {
-                assetLookupKey =
-                    registrar.lookupKeyForAsset(
-                        (String) call.argument("asset"), (String) call.argument("package"));
-              } else {
-                assetLookupKey = registrar.lookupKeyForAsset((String) call.argument("asset"));
-              }
-              AssetFileDescriptor fd = registrar.context().getAssets().openFd(assetLookupKey);
-              player = new VideoPlayer(eventChannel, handle, fd, result);
-              videoPlayers.put(handle.id(), player);
-            } catch (IOException e) {
-              result.error(
-                  "IOError",
-                  "Error trying to access asset "
-                      + (String) call.argument("asset")
-                      + ". "
-                      + e.toString(),
-                  null);
-            }
+            result.error(
+                    "IOError",
+                    "Error trying to access asset "
+                            + (String) call.argument("asset")
+                            + ". ",
+                    null);
           } else {
-            player = new VideoPlayer(eventChannel, handle, (String) call.argument("uri"), result);
+            player = new VideoPlayer(registrar.activity(), eventChannel, handle, (String) call.argument("uri"), result);
             videoPlayers.put(handle.id(), player);
           }
           break;
