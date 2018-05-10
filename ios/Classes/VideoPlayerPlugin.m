@@ -296,14 +296,9 @@ static void* playbackLikelyToKeepUpContext = &playbackLikelyToKeepUpContext;
     NSString* dataSource = argsMap[@"asset"];
     FLTVideoPlayer* player;
     if (dataSource) {
-      NSString* assetPath;
-      NSString* package = argsMap[@"package"];
-      if (![package isEqual:[NSNull null]]) {
-        assetPath = [_registrar lookupKeyForAsset:dataSource fromPackage:package];
-      } else {
-        assetPath = [_registrar lookupKeyForAsset:dataSource];
-      }
-      player = [[FLTVideoPlayer alloc] initWithAsset:assetPath frameUpdater:frameUpdater];
+      // asset does not supported
+      result(FlutterMethodNotImplemented);
+      return;
     } else {
       dataSource = argsMap[@"uri"];
       player = [[FLTVideoPlayer alloc] initWithURL:[NSURL URLWithString:dataSource]
