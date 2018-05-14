@@ -263,9 +263,11 @@ public class VideoPlayerPlugin implements MethodCallHandler {
           bufferingUpdate();
         }
       } else if (playbackState == Player.STATE_ENDED) {
-        Map<String, Object> event = new HashMap<>();
-        event.put("event", "completed");
-        eventSink.success(event);
+        if (eventSink != null) {
+          Map<String, Object> event = new HashMap<>();
+          event.put("event", "completed");
+          eventSink.success(event);
+        }
       } else if (playbackState == Player.STATE_BUFFERING) {
         bufferingUpdate();
       }
