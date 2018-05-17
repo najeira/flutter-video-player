@@ -143,25 +143,22 @@ public class VideoPlayerPlugin implements MethodCallHandler {
         player = ExoPlayerFactory.newSimpleInstance(this.activity, trackSelector);
         player.addListener(this);
         player.addVideoListener(this);
-        //player.setPlayWhenReady(shouldAutoPlay);
+        player.setPlayWhenReady(true);
         player.setRepeatMode(Player.REPEAT_MODE_ALL);
       }
 
-      MediaSource mediaSource = buildMediaSource(dataSource, null);
-      player.prepare(mediaSource, false, false);
+      MediaSource mediaSource = buildMediaSource(dataSource);
+      player.prepare(mediaSource, true, false);
 
       player.setVideoSurface(new Surface(textureEntry.surfaceTexture()));
     }
 
-    private MediaSource buildMediaSource(Uri uri, String overrideExtension) {
-      int type = TextUtils.isEmpty(overrideExtension) ? Util.inferContentType(uri)
-              : Util.inferContentType("." + overrideExtension);
+    private MediaSource buildMediaSource(Uri uri) {
+      int type = Util.inferContentType(uri);
       if (type == C.TYPE_HLS) {
         return new HlsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
-      } else if (type == C.TYPE_OTHER) {
-        return new ExtractorMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
       }
-      throw new IllegalStateException("Unsupported type: " + type);
+      return new ExtractorMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
     }
 
     void play() {
