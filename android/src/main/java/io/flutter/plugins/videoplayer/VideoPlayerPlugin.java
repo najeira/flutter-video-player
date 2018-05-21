@@ -5,9 +5,7 @@
 package io.flutter.plugins.videoplayer;
 
 import android.app.Activity;
-import android.content.res.AssetFileDescriptor;
 import android.net.Uri;
-import android.text.TextUtils;
 import android.util.LongSparseArray;
 import android.view.Surface;
 
@@ -35,7 +33,6 @@ import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
 import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
 import com.google.android.exoplayer2.util.Util;
-import com.google.android.exoplayer2.video.VideoListener;
 
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
@@ -54,7 +51,7 @@ import java.util.List;
 import java.util.Map;
 
 public class VideoPlayerPlugin implements MethodCallHandler {
-  private static class VideoPlayer implements Player.EventListener, VideoListener {
+  private static class VideoPlayer implements Player.EventListener, SimpleExoPlayer.VideoListener {
     private static final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter();
     private static final CookieManager DEFAULT_COOKIE_MANAGER;
 
@@ -219,7 +216,7 @@ public class VideoPlayerPlugin implements MethodCallHandler {
     }
 
     @Override
-    public void onTimelineChanged(Timeline timeline, Object manifest, int reason) {
+    public void onTimelineChanged(Timeline timeline, Object manifest) {
 
     }
 
