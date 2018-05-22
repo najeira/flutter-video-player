@@ -6,6 +6,8 @@ package io.flutter.plugins.videoplayer;
 
 import android.app.Activity;
 import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
 import android.util.LongSparseArray;
 import android.view.Surface;
 
@@ -16,6 +18,7 @@ import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.Timeline;
+import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
 import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.google.android.exoplayer2.source.BehindLiveWindowException;
@@ -60,11 +63,13 @@ public class VideoPlayerPlugin implements MethodCallHandler {
       DEFAULT_COOKIE_MANAGER.setCookiePolicy(CookiePolicy.ACCEPT_ORIGINAL_SERVER);
     }
 
+    private Handler mainHandler;
     private final TextureRegistry.SurfaceTextureEntry textureEntry;
     private EventChannel.EventSink eventSink;
     private final EventChannel eventChannel;
     private final Activity activity;
     private boolean isInitialized = false;
+    private boolean isInitializedSent = false;
 
     private Uri dataSource;
     private DataSource.Factory mediaDataSourceFactory;
@@ -102,6 +107,8 @@ public class VideoPlayerPlugin implements MethodCallHandler {
     }
 
     private void setupVideoPlayer(TextureRegistry.SurfaceTextureEntry textureEntry, Result result) {
+      mainHandler = new Handler(Looper.getMainLooper());
+
       eventChannel.setStreamHandler(
               new EventChannel.StreamHandler() {
                 @Override
@@ -144,18 +151,18 @@ public class VideoPlayerPlugin implements MethodCallHandler {
         player.setRepeatMode(Player.REPEAT_MODE_ALL);
       }
 
+      player.setVideoSurface(new Surface(textureEntry.surfaceTexture()));
+
       MediaSource mediaSource = buildMediaSource(dataSource);
       player.prepare(mediaSource, true, false);
-
-      player.setVideoSurface(new Surface(textureEntry.surfaceTexture()));
     }
 
     private MediaSource buildMediaSource(Uri uri) {
       int type = Util.inferContentType(uri);
       if (type == C.TYPE_HLS) {
-        return new HlsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
+        return new HlsMediaSource(uri, mediaDataSourceFactory, mainHandler, null);
       }
-      return new ExtractorMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
+      return new ExtractorMediaSource(uri, mediaDataSourceFactory, new DefaultExtractorsFactory(), mainHandler, null);
     }
 
     void play() {
@@ -183,14 +190,24 @@ public class VideoPlayerPlugin implements MethodCallHandler {
       return player.getCurrentPosition();
     }
 
+    private boolean setInitialized() {
+      if (!isInitialized) {
+        isInitialized = true;
+        sendInitialized();
+        return true;
+      }
+      return false;
+    }
+
     private void sendInitialized() {
-      if (isInitialized && eventSink != null) {
+      if (isInitialized && eventSink != null && !isInitializedSent) {
         Map<String, Object> event = new HashMap<>();
         event.put("event", "initialized");
         event.put("duration", player.getDuration());
         event.put("width", width);
         event.put("height", height);
         eventSink.success(event);
+        isInitializedSent = true;
       }
     }
 
@@ -250,10 +267,7 @@ public class VideoPlayerPlugin implements MethodCallHandler {
     @Override
     public void onPlayerStateChanged(boolean playWhenReady, int playbackState) {
       if (playbackState == Player.STATE_READY) {
-        if (!isInitialized) {
-          isInitialized = true;
-          sendInitialized();
-        } else {
+        if (!setInitialized()) {
           bufferingUpdate();
         }
       } else if (playbackState == Player.STATE_ENDED) {
@@ -342,12 +356,12 @@ public class VideoPlayerPlugin implements MethodCallHandler {
     public void onVideoSizeChanged(int width, int height, int unappliedRotationDegrees, float pixelWidthHeightRatio) {
       this.width = width;
       this.height = height;
-      sendInitialized();
+      setInitialized();
     }
 
     @Override
     public void onRenderedFirstFrame() {
-
+      setInitialized();
     }
   }
 
