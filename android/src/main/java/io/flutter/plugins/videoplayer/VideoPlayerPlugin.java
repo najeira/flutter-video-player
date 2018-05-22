@@ -6,8 +6,6 @@ package io.flutter.plugins.videoplayer;
 
 import android.app.Activity;
 import android.net.Uri;
-import android.os.Handler;
-import android.os.Looper;
 import android.util.LongSparseArray;
 import android.view.Surface;
 
@@ -18,7 +16,6 @@ import com.google.android.exoplayer2.PlaybackParameters;
 import com.google.android.exoplayer2.Player;
 import com.google.android.exoplayer2.SimpleExoPlayer;
 import com.google.android.exoplayer2.Timeline;
-import com.google.android.exoplayer2.extractor.DefaultExtractorsFactory;
 import com.google.android.exoplayer2.mediacodec.MediaCodecRenderer;
 import com.google.android.exoplayer2.mediacodec.MediaCodecUtil;
 import com.google.android.exoplayer2.source.BehindLiveWindowException;
@@ -36,6 +33,7 @@ import com.google.android.exoplayer2.upstream.DefaultBandwidthMeter;
 import com.google.android.exoplayer2.upstream.DefaultDataSourceFactory;
 import com.google.android.exoplayer2.upstream.DefaultHttpDataSourceFactory;
 import com.google.android.exoplayer2.util.Util;
+import com.google.android.exoplayer2.video.VideoListener;
 
 import io.flutter.plugin.common.EventChannel;
 import io.flutter.plugin.common.MethodCall;
@@ -54,7 +52,7 @@ import java.util.List;
 import java.util.Map;
 
 public class VideoPlayerPlugin implements MethodCallHandler {
-  private static class VideoPlayer implements Player.EventListener, SimpleExoPlayer.VideoListener {
+  private static class VideoPlayer implements Player.EventListener, VideoListener {
     private static final DefaultBandwidthMeter BANDWIDTH_METER = new DefaultBandwidthMeter();
     private static final CookieManager DEFAULT_COOKIE_MANAGER;
 
@@ -63,7 +61,6 @@ public class VideoPlayerPlugin implements MethodCallHandler {
       DEFAULT_COOKIE_MANAGER.setCookiePolicy(CookiePolicy.ACCEPT_ORIGINAL_SERVER);
     }
 
-    private Handler mainHandler;
     private final TextureRegistry.SurfaceTextureEntry textureEntry;
     private EventChannel.EventSink eventSink;
     private final EventChannel eventChannel;
@@ -100,15 +97,12 @@ public class VideoPlayerPlugin implements MethodCallHandler {
         Result result) {
       this.activity = activity;
       this.eventChannel = eventChannel;
-      //this.mediaPlayer = new MediaPlayer();
       this.textureEntry = textureEntry;
       this.dataSource = Uri.parse(dataSource);
       setupVideoPlayer(textureEntry, result);
     }
 
     private void setupVideoPlayer(TextureRegistry.SurfaceTextureEntry textureEntry, Result result) {
-      mainHandler = new Handler(Looper.getMainLooper());
-
       eventChannel.setStreamHandler(
               new EventChannel.StreamHandler() {
                 @Override
@@ -146,7 +140,7 @@ public class VideoPlayerPlugin implements MethodCallHandler {
 
         player = ExoPlayerFactory.newSimpleInstance(this.activity, trackSelector);
         player.addListener(this);
-        player.setVideoListener(this);
+        player.addVideoListener(this);
         player.setPlayWhenReady(true);
         player.setRepeatMode(Player.REPEAT_MODE_ALL);
       }
@@ -160,9 +154,9 @@ public class VideoPlayerPlugin implements MethodCallHandler {
     private MediaSource buildMediaSource(Uri uri) {
       int type = Util.inferContentType(uri);
       if (type == C.TYPE_HLS) {
-        return new HlsMediaSource(uri, mediaDataSourceFactory, mainHandler, null);
+        return new HlsMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
       }
-      return new ExtractorMediaSource(uri, mediaDataSourceFactory, new DefaultExtractorsFactory(), mainHandler, null);
+      return new ExtractorMediaSource.Factory(mediaDataSourceFactory).createMediaSource(uri);
     }
 
     void play() {
@@ -233,7 +227,7 @@ public class VideoPlayerPlugin implements MethodCallHandler {
     }
 
     @Override
-    public void onTimelineChanged(Timeline timeline, Object manifest) {
+    public void onTimelineChanged(Timeline timeline, Object manifest, int reason) {
 
     }
 
