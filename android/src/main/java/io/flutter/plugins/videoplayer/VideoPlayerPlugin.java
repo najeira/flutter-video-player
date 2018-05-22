@@ -146,7 +146,7 @@ public class VideoPlayerPlugin implements MethodCallHandler {
 
         player = ExoPlayerFactory.newSimpleInstance(this.activity, trackSelector);
         player.addListener(this);
-        player.addVideoListener(this);
+        player.setVideoListener(this);
         player.setPlayWhenReady(true);
         player.setRepeatMode(Player.REPEAT_MODE_ALL);
       }
