@@ -207,7 +207,9 @@ static void* playbackLikelyToKeepUpContext = &playbackLikelyToKeepUpContext;
 }
 
 - (void)seekTo:(int)location {
-  [_player seekToTime:CMTimeMake(location, 1000)];
+  [_player seekToTime:CMTimeMake(location, 1000)
+      toleranceBefore:kCMTimeZero
+       toleranceAfter:kCMTimeZero];
 }
 
 - (void)setIsLooping:(bool)isLooping {
