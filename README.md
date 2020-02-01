@@ -1,3 +1,5 @@
+[video_player](https://pub.dev/packages/video_player) now uses ExoPlayer as backend, so there is no need to use this plugin, use [video_player](https://pub.dev/packages/video_player)
+
 # Video Player plugin for Flutter
 
 A Flutter plugin for iOS and Android for playing back video on a Widget surface.
